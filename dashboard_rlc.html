@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Filtro RLC interactivo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+/* VOICE: claro y de laboratorio, para explicar en vivo frente al salón
+   IDEA: el panel de un osciloscopio de dos canales con una perilla de R
+   PICTURE: las dos pantallas (escalón y ganancia) que cambian al mover R
+   COLOUR and TYPE: papel claro / pizarra de noche, trazo ámbar, pizarra azul-gris; IBM Plex
+   LAYOUT: perilla y lectura grande arriba, dos pantallas lado a lado, tabla y audio abajo */
+:root{color-scheme:light dark;--bg:light-dark(#f5f5f1,#101418);--panel:light-dark(#ffffff,#171d23);--ink:light-dark(#13171b,#e9edf0);--mute:light-dark(#5f6b75,#9aa7b2);--line:light-dark(#dfe2dd,#2a333b);--amb:#e8a33d;--slate:light-dark(#5f7383,#8fa3b3);--grid:light-dark(#ecefea,#1f272e);--bad:light-dark(#c0392b,#ff7a6b);--ok:light-dark(#1f7a4d,#5fd39a)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "IBM Plex Sans",system-ui,sans-serif;overflow-x:clip}
+.band{padding:clamp(20px,3.5vw,44px) max(4vw,16px);max-width:1240px;margin:0 auto}
+h1{font-size:clamp(28px,4vw,40px);line-height:1.08;margin:0 0 6px;text-wrap:balance}
+.sub{color:var(--mute);margin:0 0 20px;max-width:70ch}
+.ctrl{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:20px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+.rval{font:500 clamp(40px,6vw,60px)/1 "IBM Plex Mono",monospace}
+.rval small{font-size:.4em;color:var(--mute)}
+input[type=range]{width:100%;height:44px;accent-color:var(--amb)}
+.presets{display:flex;flex-wrap:wrap;gap:8px}
+button{font:600 15px "IBM Plex Sans",sans-serif;min-height:44px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer}
+button:hover{border-color:var(--amb)}button:focus-visible,input:focus-visible{outline:3px solid var(--amb);outline-offset:2px}
+button.on{background:var(--amb);border-color:var(--amb);color:#13171b}
+.reg{font-size:22px;font-weight:700;margin:4px 0 2px}
+.why{color:var(--mute);margin:0}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:14px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.stat b{display:block;font:500 24px "IBM Plex Mono",monospace;white-space:nowrap}
+.stat span{color:var(--mute);font-size:13px}
+.screens{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:16px}
+.scr{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 14px 8px}
+.scr h2{font-size:17px;margin:0 0 2px}.scr p{margin:0;color:var(--mute);font-size:14px}
+.fig{position:relative;min-height:300px}.fig>svg{position:absolute;inset:0;width:100%;height:100%}
+svg text{font:12px "IBM Plex Sans",sans-serif;fill:var(--mute)}
+.low{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:16px;margin-top:16px}
+table{width:100%;border-collapse:collapse}th,td{padding:8px 6px;border-bottom:1px solid var(--line);text-align:right}th:first-child,td:first-child{text-align:left}
+td{font-family:"IBM Plex Mono",monospace;white-space:nowrap}
+.bar{height:8px;border-radius:4px;background:var(--amb);display:inline-block;vertical-align:middle;margin-right:6px}
+.filebtn{display:inline-flex;align-items:center;font:600 15px 'IBM Plex Sans',sans-serif;min-height:44px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:var(--bg);cursor:pointer}.filebtn input{position:absolute;opacity:0;width:1px;height:1px}.filebtn:focus-within{outline:3px solid var(--amb)}
+#rec.live{background:var(--bad);border-color:var(--bad);color:#fff}
+.note{font-size:13px;color:var(--mute);margin-top:8px}
+@media(max-width:760px){.ctrl,.screens,.low{grid-template-columns:minmax(0,1fr)}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="band">
+  <h1>Mueve la resistencia y mira el filtro</h1>
+  <p class="sub">Circuito RLC en serie, L = 0.5 H y C = 200 µF, salida en el condensador. Las curvas salen de la solución exacta de L Q″ + R Q′ + Q/C = E(t), la misma de la deducción y de <code>rlc.py</code>.</p>
+
+  <div class="ctrl">
+    <div>
+      <div class="rval"><span id="rv">70.7</span> <small>Ω</small></div>
+      <input id="r" type="range" min="1" max="250" step="0.1" value="70.7" aria-label="Resistencia R en ohmios">
+      <div class="presets" id="pre"></div>
+    </div>
+    <div>
+      <div class="reg" id="reg"></div>
+      <p class="why" id="why"></p>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b id="z"></b><span>ζ = R / R<sub>cr</sub> (R<sub>cr</sub> = 100 Ω)</span></div>
+    <div class="stat"><b id="os"></b><span>sobreimpulso ante 12 V</span></div>
+    <div class="stat"><b id="ts"></b><span>se estabiliza (criterio 2 %)</span></div>
+    <div class="stat"><b id="pk"></b><span>pico de ganancia</span></div>
+  </div>
+
+  <div class="screens">
+    <div class="scr"><h2>Respuesta al escalón de 12 V</h2><p>Voltaje del condensador V<sub>C</sub>(t). En gris, la recomendada (70.7 Ω) para comparar.</p><div class="fig"><svg id="s1"></svg></div></div>
+    <div class="scr"><h2>Respuesta en frecuencia</h2><p>Ganancia |V<sub>C</sub>|/|E| en escala logarítmica</p><div class="fig"><svg id="s2"></svg></div></div>
+  </div>
+
+  <div class="low">
+    <div class="scr">
+      <h2>¿Cuánto de cada señal sale?</h2>
+      <table><thead><tr><th>Frecuencia</th><th>Ganancia</th><th>Sale con</th></tr></thead><tbody id="tb"></tbody></table>
+    </div>
+    <div class="scr">
+      <h2>Escúchalo</h2>
+      <p>Para que se oiga, el corte se mueve a 400 Hz cambiando C, con el mismo ζ que elegiste arriba. Sonido: <b id="srcn">grave de 110 Hz + pitido de 3000 Hz</b>.</p>
+      <div class="presets" style="margin-top:12px">
+        <button id="rec">● Grabar mi voz (3 s)</button>
+        <label class="filebtn"><input id="file" type="file" accept="audio/*">Cargar un audio</label>
+        <button id="syn">Sonido de prueba</button>
+      </div>
+      <div class="presets" style="margin-top:8px">
+        <button id="p0">▶ Original</button><button id="p1">▶ Filtrado</button>
+      </div>
+      <p class="note" id="an">El filtrado no se normaliza: lo que baja de volumen es real.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+{
+const L=0.5,C=200e-6,E0=12,Rcr=2*Math.sqrt(L/C),fn=1/(2*Math.PI*Math.sqrt(L*C));
+const $=id=>document.getElementById(id);
+const PRE=[10,50,70.7,100,200];
+function vc(t,R){const a=R/(2*L),d=R*R-4*L/C;
+  if(Math.abs(d)<1e-6)return E0-E0*Math.exp(-a*t)*(1+a*t);
+  if(d<0){const b=Math.sqrt(-d)/(2*L);return E0-E0*Math.exp(-a*t)*(Math.cos(b*t)+a/b*Math.sin(b*t));}
+  const r1=(-R+Math.sqrt(d))/(2*L),r2=(-R-Math.sqrt(d))/(2*L);
+  return E0+E0*r2/(r1-r2)*Math.exp(r1*t)-E0*r1/(r1-r2)*Math.exp(r2*t);}
+const gain=(f,R)=>{const w=2*Math.PI*f;return 1/Math.sqrt((1-L*C*w*w)**2+(R*C*w)**2);};
+function stats(R){let mx=0,last=0;for(let i=0;i<=15000;i++){const t=i*1e-4,v=vc(t,R);if(v>mx)mx=v;if(Math.abs(v-E0)>0.24)last=t;}
+  let pk=0;for(let i=0;i<=2000;i++){const g=gain(10**(-1+i*0.002),R);if(g>pk)pk=g;}
+  return{os:Math.max(0,(mx-E0)/E0*100),ts:last,pk,mx};}
+function regimen(R){const z=R/Rcr;
+  if(Math.abs(z-1)<0.004)return["Críticamente amortiguado","El más rápido que llega a 12 V sin pasarse. Como filtro ya empieza a recortar los graves."];
+  if(z<1){if(z<0.5)return["Subamortiguado: rebota mucho","Se pasa de 12 V y oscila. Como filtro, amplifica las señales cerca de 15.9 Hz (resonancia)."];
+    if(z<0.69)return["Subamortiguado: rebota poco","Todavía se pasa un poco y conserva un pequeño pico de resonancia."];
+    if(z<0.72)return["Subamortiguado, ζ ≈ 0.707 (Butterworth)","Nuestra recomendación: banda de paso plana sin pico, apenas 4 % de rebote y estable en 0.06 s."];
+    return["Subamortiguado, casi crítico","Rebote mínimo y sin pico de ganancia, pero ya atenúa un poco los graves."];}
+  return["Sobreamortiguado: lento, sin oscilar","No rebota, pero tarda más y atenúa los graves que queremos conservar."];}
+
+function axes(W,H,m){return`<rect x="${m.l}" y="${m.t}" width="${W-m.l-m.r}" height="${H-m.t-m.b}" fill="none" stroke="var(--line)"/>`;}
+function draw1(R){const s=$('s1'),W=s.clientWidth,H=s.clientHeight;if(!W)return;
+  const m={l:40,r:10,t:10,b:28},T=0.6,Y=22,x=t=>m.l+t/T*(W-m.l-m.r),y=v=>H-m.b-v/Y*(H-m.t-m.b);
+  let g=axes(W,H,m);
+  for(let v=0;v<=20;v+=5)g+=`<line x1="${m.l}" x2="${W-m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/><text x="${m.l-6}" y="${y(v)+4}" text-anchor="end">${v}</text>`;
+  for(let t=0;t<=0.6001;t+=W<520?0.2:0.1)g+=`<text x="${x(t)}" y="${H-8}" text-anchor="${t>0.55?'end':'middle'}">${t.toFixed(1)} s</text>`;
+  g+=`<line x1="${m.l}" x2="${W-m.r}" y1="${y(12)}" y2="${y(12)}" stroke="var(--slate)" stroke-dasharray="5 4"/><text x="${W-m.r-4}" y="${y(12)-6}" text-anchor="end">E = 12 V</text>`;
+  if(R!==70.7){let p='';for(let i=0;i<=400;i++){const t=i/400*T;p+=(i?'L':'M')+x(t).toFixed(1)+' '+y(vc(t,70.7)).toFixed(1);}g+=`<path d="${p}" fill="none" stroke="var(--slate)" stroke-width="1.5" opacity=".55"/>`;}
+  let p='';for(let i=0;i<=600;i++){const t=i/600*T;p+=(i?'L':'M')+x(t).toFixed(1)+' '+y(Math.min(Y,vc(t,R))).toFixed(1);}
+  g+=`<path d="${p}" fill="none" stroke="var(--amb)" stroke-width="3"/>`;
+  s.innerHTML=g;}
+function draw2(R){const s=$('s2'),W=s.clientWidth,H=s.clientHeight;if(!W)return;
+  const m={l:46,r:10,t:10,b:28},lx=[0,3.3],ly=[-4,1],x=f=>m.l+(Math.log10(f)-lx[0])/(lx[1]-lx[0])*(W-m.l-m.r),y=g=>H-m.b-(Math.log10(g)-ly[0])/(ly[1]-ly[0])*(H-m.t-m.b);
+  let g=axes(W,H,m);
+  for(let e=-4;e<=1;e++)g+=`<line x1="${m.l}" x2="${W-m.r}" y1="${y(10**e)}" y2="${y(10**e)}" stroke="var(--grid)"/><text x="${m.l-6}" y="${y(10**e)+4}" text-anchor="end">${e>=0?10**e:(10**e).toFixed(-e)}</text>`;
+  for(const f of[1,10,100,1000])g+=`<text x="${x(f)}" y="${H-8}" text-anchor="${f==1?'start':'middle'}">${f} Hz</text>`;
+  g+=`<line x1="${x(fn)}" x2="${x(fn)}" y1="${m.t}" y2="${H-m.b}" stroke="var(--slate)" stroke-dasharray="2 4"/><text x="${x(fn)+5}" y="${m.t+14}">f<tspan dy="3" font-size="10">n</tspan><tspan dy="-3"> = 15.9 Hz</tspan></text>`;
+  g+=`<line x1="${m.l}" x2="${W-m.r}" y1="${y(0.707)}" y2="${y(0.707)}" stroke="var(--slate)" stroke-dasharray="5 4" opacity=".7"/>`;
+  let p='';for(let i=0;i<=500;i++){const f=10**(lx[0]+i/500*(lx[1]-lx[0]));p+=(i?'L':'M')+x(f).toFixed(1)+' '+y(Math.max(1e-4,Math.min(10,gain(f,R)))).toFixed(1);}
+  g+=`<path d="${p}" fill="none" stroke="var(--amb)" stroke-width="3"/>`;
+  for(const f of[5,50,500])g+=`<circle cx="${x(f)}" cy="${y(gain(f,R))}" r="4.5" fill="var(--ink)"/>`;
+  s.innerHTML=g;}
+
+function update(){const R=+$('r').value;$('rv').textContent=R.toFixed(1);
+  const st=stats(R),[rg,wy]=regimen(R);
+  $('reg').textContent=rg;$('why').textContent=wy;
+  $('z').textContent=(R/Rcr).toFixed(2);
+  $('os').textContent=st.os<0.05?'0 %':st.os.toFixed(1)+' %';
+  $('ts').textContent=st.ts.toFixed(3)+' s';
+  $('pk').textContent='×'+st.pk.toFixed(2);
+  $('pk').style.color=st.pk>1.01?'var(--bad)':'var(--ok)';
+  for(const b of document.querySelectorAll('#pre button'))b.classList.toggle('on',+b.dataset.r===R);
+  $('tb').innerHTML=[[5,'5 Hz'],[fn,'15.9 Hz'],[50,'50 Hz'],[500,'500 Hz']].map(([f,l])=>{const g=gain(f,R),pc=g*100;
+    return`<tr><td>${l}</td><td>${g<0.01?g.toFixed(4):g.toFixed(3)}</td><td><span class="bar" style="width:${Math.min(80,pc*0.8).toFixed(1)}px"></span>${pc<1?pc.toFixed(2):pc.toFixed(1)} %</td></tr>`;}).join('');
+  draw1(R);draw2(R);}
+
+$('pre').innerHTML=PRE.map(r=>`<button data-r="${r}">${r} Ω</button>`).join('');
+$('pre').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;$('r').value=b.dataset.r;update();});
+$('r').addEventListener('input',update);
+const ro=new ResizeObserver(()=>update());ro.observe($('s1'));
+
+let ctx=null,src=null,user=null;
+const AC=()=>{ctx=ctx||new (window.AudioContext||window.webkitAudioContext)();return ctx;};
+function synth(fs){const N=Math.floor(fs*2.5),x=new Float32Array(N);
+  for(let n=0;n<N;n++){const t=n/fs,env=Math.min(1,t/0.03,(2.5-t)/0.05);x[n]=0.3*env*(Math.sin(2*Math.PI*110*t)+Math.sin(2*Math.PI*3000*t));}return x;}
+function mono(ab){const N=ab.length,x=new Float32Array(N);for(let c=0;c<ab.numberOfChannels;c++){const d=ab.getChannelData(c);for(let n=0;n<N;n++)x[n]+=d[n]/ab.numberOfChannels;}
+  let m=0;for(const v of x)m=Math.max(m,Math.abs(v));if(m>0)for(let n=0;n<N;n++)x[n]*=0.8/m;return x;}
+function play(filtered){
+  try{AC();}catch(e){$('an').textContent='Este navegador no permite reproducir audio aquí.';return;}
+  if(src){try{src.stop();}catch(e){}}
+  const fs=ctx.sampleRate,x=Float32Array.from(user||synth(fs)),N=x.length,buf=ctx.createBuffer(1,N,fs);
+  if(filtered){const z=+$('r').value/Rcr,fc=400,Ca=1/(L*(2*Math.PI*fc)**2),Ra=2*z*Math.sqrt(L/Ca),a=L*Ca,b=Ra*Ca,K=2*fs,d0=a*K*K+b*K+1;
+    const b0=1/d0,b1=2/d0,b2=1/d0,a1=(2-2*a*K*K)/d0,a2=(a*K*K-b*K+1)/d0;let x1=0,x2=0,y1=0,y2=0;
+    for(let n=0;n<N;n++){const xn=x[n],yn=b0*xn+b1*x1+b2*x2-a1*y1-a2*y2;x2=x1;x1=xn;y2=y1;y1=yn;x[n]=Math.max(-1,Math.min(1,yn));}
+    $('an').textContent=`Filtrado con ζ = ${z.toFixed(2)}: C = ${(Ca*1e9).toFixed(0)} nF y R = ${Ra.toFixed(0)} Ω. Los agudos se apagan: suena "bajo el agua". Un tono de 3000 Hz sale con ${(100*gain(3000*fn/fc,z*Rcr)).toFixed(1)} %.`;}
+  else $('an').textContent='Original, sin filtrar.';
+  buf.copyToChannel(x,0);src=ctx.createBufferSource();src.buffer=buf;src.connect(ctx.destination);
+  ctx.resume().then(()=>src.start()).catch(()=>{$('an').textContent='No se pudo reproducir el audio.';});}
+async function load(blob,name){try{const ab=await AC().decodeAudioData(await blob.arrayBuffer());user=mono(ab);$('srcn').textContent=name;$('an').textContent='Listo. Dale a Original y luego a Filtrado.';}
+  catch(e){$('an').textContent='No se pudo leer ese audio. Prueba con un .mp3 o .wav.';}}
+$('rec').addEventListener('click',async()=>{
+  let st;try{st=await navigator.mediaDevices.getUserMedia({audio:true});}
+  catch(e){$('an').textContent='El micrófono no está permitido aquí. Abre el archivo .html descargado (doble clic) y acepta el permiso, o usa "Cargar un audio".';return;}
+  const mr=new MediaRecorder(st),ch=[];mr.ondataavailable=e=>ch.push(e.data);
+  mr.onstop=()=>{st.getTracks().forEach(t=>t.stop());$('rec').classList.remove('live');$('rec').textContent='● Grabar mi voz (3 s)';load(new Blob(ch,{type:mr.mimeType}),'tu grabación');};
+  $('rec').classList.add('live');$('rec').textContent='Grabando… habla ahora';$('an').textContent='Grabando 3 segundos.';mr.start();setTimeout(()=>mr.stop(),3000);});
+$('file').addEventListener('change',e=>{const f=e.target.files[0];if(f)load(f,f.name);});
+$('syn').addEventListener('click',()=>{user=null;$('srcn').textContent='grave de 110 Hz + pitido de 3000 Hz';$('an').textContent='Sonido de prueba listo.';});
+$('p0').addEventListener('click',()=>play(false));
+$('p1').addEventListener('click',()=>play(true));
+update();
+}
+</script>
+</body>
+</html>
